@@ -26,7 +26,7 @@ int main() {
         cout << "Continue Driving or Stop"<<endl;
     }
     else if (state == "S") {
-        cout << "Start the Vehicle"<<endl;
+        cout << "Kindly Start the Vehicle"<<endl;
         return 0;
     }
     else {
