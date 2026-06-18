@@ -86,7 +86,7 @@ int main() {
    
    total_fare=passengers*price;
    cout<<"The total number of passengers were::"<<passengers<<"and the total fare collected was::"<<total_fare<<endl;
-   
+   cout << "Thank you for playing";
    
     return 0;
 }
