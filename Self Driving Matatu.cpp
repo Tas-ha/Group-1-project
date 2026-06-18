@@ -23,7 +23,7 @@ int main() {
     cout << "Which state is your car in:" << endl;
     cin>>state;
     if (state == "D") {
-        cout << "Continue Driving or Stop"<<endl;
+        cout << "Do you want to continue Driving or Stop"<<endl;
     }
     else if (state == "S") {
         cout << "Kindly Start the Vehicle"<<endl;
