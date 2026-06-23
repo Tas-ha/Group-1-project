@@ -1,5 +1,24 @@
 #include <iostream>
 using namespace std;
+string autoDecision() {
+    bool obstacle = detectObstacleAhead();
+    bool leftFree = checkLaneAvailability("left");
+    bool rightFree = checkLaneAvailability("right");
+
+    if (obstacle == false) {
+        return "STRAIGHT";
+    }
+
+    if (leftFree == true) {
+        return "LEFT";
+    }
+    else if (rightFree == true) {
+        return "RIGHT";
+    }
+    else {
+        return "BRAKE";
+    }
+}
 void changeLane(string direction){
 }
 
