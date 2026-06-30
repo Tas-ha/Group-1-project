@@ -1,6 +1,7 @@
 #include <iostream>
 #include <windows.h>
 #include <cstdlib>
+#include <ctime>
 
 using namespace std;
 
@@ -13,7 +14,14 @@ int enemyFlag[3];
 #define SCREEN_HEIGHT 26
 
 // This function already exists in the main project.
-void gotoxy(int x, int y);
+
+void gotoxy(int x, int y)
+{
+    COORD coord;
+    coord.X = x;
+    coord.Y = y;
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+}
 
 // Generate a random position for an obstacle
 void genEnemy(int index)
@@ -71,4 +79,25 @@ void updateEnemy(int index)
     {
         resetEnemy(index);
     }
+}
+
+int main()
+{
+    srand(time(0));
+
+    enemyFlag[0] = 1;
+    enemyY[0] = 1;
+
+    genEnemy(0);
+
+    while (true)
+    {
+        eraseEnemy(0);
+        updateEnemy(0);
+        drawEnemy(0);
+
+        Sleep(100);
+    }
+
+    return 0;
 }
