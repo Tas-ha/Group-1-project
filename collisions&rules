@@ -1,0 +1,71 @@
+#include <iostream>
+using namespace std;
+void changeLane(string direction){
+}
+
+void speedUp() {
+}
+
+void brakeMatatu() {}
+// =====================
+// Person 4
+// Collision & Rules
+// =====================
+
+extern string obstacle;
+extern float obstacle_speed;
+extern float my_speed;
+
+bool detectObstacleAhead()
+{
+    if(obstacle == "ZebraCrossing" ||
+       obstacle == "redlight" ||
+       obstacle == "OtherVehicles")
+    {
+        return true;
+    }
+
+    return false;
+}
+
+bool checkLaneAvailability(string direction)
+{
+    if(obstacle == "OtherVehicles")
+    {
+        return true;
+    }
+
+    return false;
+}
+
+bool checkCollision()
+{
+    if(obstacle == "OtherVehicles" &&
+       my_speed > obstacle_speed)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+
+void userInput (char input) {
+  switch (input){
+  
+    case 'a':
+        changeLane("left");
+        break;
+    case 'd':
+        changeLane("right");
+        break;
+    case 'w':
+        speedUp();
+        break;
+    case 's':
+        brakeMatatu();
+        break;
+    default:
+        break;
+}
+}
