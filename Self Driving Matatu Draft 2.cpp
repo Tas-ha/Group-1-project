@@ -81,6 +81,49 @@ void updateEnemy(int index)
     }
 }
 
+void brakeMatatu() {}
+// =====================
+// Person 4
+// Collision & Rules
+// =====================
+
+extern string obstacle;
+extern float obstacle_speed;
+extern float my_speed;
+
+bool detectObstacleAhead()
+{
+    if(obstacle == "ZebraCrossing" ||
+       obstacle == "redlight" ||
+       obstacle == "OtherVehicles")
+    {
+        return true;
+    }
+
+    return false;
+}
+
+bool checkLaneAvailability(string direction)
+{
+    if(obstacle == "OtherVehicles")
+    {
+        return true;
+    }
+
+    return false;
+}
+
+bool checkCollision()
+{
+    if(obstacle == "OtherVehicles" &&
+       my_speed > obstacle_speed)
+    {
+        return true;
+    }
+
+    return false;
+}
+
 string autoDecision() {
     bool obstacle = detectObstacleAhead();
     bool leftFree = checkLaneAvailability("left");
@@ -100,14 +143,6 @@ string autoDecision() {
         return "BRAKE";
     }
 }
-void changeLane(string direction){
-}
-
-void speedUp() {
-}
-
-void brakeMatatu() {
-
 
 void userInput (char input) {
   switch (input)
