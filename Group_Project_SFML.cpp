@@ -1,4 +1,5 @@
 #include <SFML/Graphics.hpp>
+#include <iostream>
 #include <cstdlib>
 #include <ctime>
 #include <cmath>
@@ -10,28 +11,38 @@ using namespace std;
 // =====================
 // SETTINGS
 // =====================
-const int WINDOW_WIDTH  = 700;
-const int WINDOW_HEIGHT = 700;
+const int WINDOW_WIDTH  = 800;
+const int WINDOW_HEIGHT = 800;
 
 const int LANE_COUNT   = 3;
-const int LANE_WIDTH   = 120;
-const int ROAD_LEFT    = 170;              // left edge of road
+const int LANE_WIDTH   = 150;
+const int ROAD_LEFT    = 175;              // left edge of road
 const int ROAD_RIGHT   = ROAD_LEFT + LANE_COUNT * LANE_WIDTH;
 
 const float CAR_WIDTH   = 60.f;
 const float CAR_HEIGHT  = 90.f;
 const float PLAYER_Y    = WINDOW_HEIGHT - 130.f;   // fixed screen y for player
-const float SPEED       = 5.f;                     // pixels/frame obstacles fall
-const float SPAWN_GAP_Y = 310.f;                    // min vertical gap between obstacles when spawning
+const float MIN_SPEED = 0.f;
+const float MAX_SPEED = 6.f;
+const float SPEED_STEP = 1.f;
+                     
+const float SPAWN_GAP_Y = 300.f;                    // min vertical gap between obstacles when spawning
+const float ZEBRA_HEIGHT = 80.f;
+float zebraY = -1200.f;   // starts off-screen
+bool zebraActive = true;
+bool zbcrossingStop = false;
+bool braking = false;
+bool playerBraking = false;
+float gameSpeed = 5.f;                            // pixels/frame obstacles fall
+float movementFactor = 1.0f; 
 
 // AI reaction tuning:
 // AI_REACT_DISTANCE - how far ahead the AI "sees" an obstacle and starts to react
 // LANE_CLEAR_GAP     - how much clear space is required in a lane before the AI will swerve into it
 // LANE_CLEAR_GAP is intentionally smaller than AI_REACT_DISTANCE so the AI reacts
 // with room to spare, instead of only reacting once already at the minimum safe gap
-const float AI_REACT_DISTANCE = 300.f;
-const float LANE_CLEAR_GAP    = 220.f;
-
+const float AI_REACT_DISTANCE = 250.f;
+const float LANE_CLEAR_GAP    = 180.f;
 // returns the x pixel center of a lane
 float laneCenterX(int lane)
 {
@@ -121,7 +132,7 @@ bool enemyUseSprite = false;
 
 // sets up the fallback rectangles, and -- if tex loaded successfully --
 // also sets up sprites for every obstacle slot
-void initEnemyShapes(Texture &tex)
+void initEnemyShapes(Texture enemyTexture[])
 {
     for (int i = 0; i < MAX_OBSTACLES; i++)
     {
@@ -130,18 +141,29 @@ void initEnemyShapes(Texture &tex)
         enemyShape[i].setOrigin(CAR_WIDTH / 2.f, CAR_HEIGHT / 2.f);
     }
 
-    if (tex.getSize().x > 0)   // loadFromFile succeeded
+    for (int i = 0; i < MAX_OBSTACLES; i++)
     {
-        for (int i = 0; i < MAX_OBSTACLES; i++)
+        if (enemyTexture[i].getSize().x > 0)
         {
-            enemySprite[i].setTexture(tex);
-            enemySprite[i].setOrigin(tex.getSize().x / 2.f, tex.getSize().y / 2.f);
-            enemySprite[i].setScale(CAR_WIDTH / tex.getSize().x,
-                                     CAR_HEIGHT / tex.getSize().y);
+            enemySprite[i].setTexture(enemyTexture[i]);
+
+            enemySprite[i].setOrigin(
+                enemyTexture[i].getSize().x / 2.f,
+                enemyTexture[i].getSize().y / 2.f
+            );
+
+            enemySprite[i].setScale(
+                CAR_WIDTH / enemyTexture[i].getSize().x,
+                CAR_HEIGHT / enemyTexture[i].getSize().y
+            );
         }
-        enemyUseSprite = true;
     }
+
+    enemyUseSprite = true;
 }
+
+bool yTooClose;
+float newY;
 
 // spawns obstacle i, avoiding lane overlap and vertical clustering
 void genEnemy(int i)
@@ -149,11 +171,13 @@ void genEnemy(int i)
     int newLane;
     bool laneTaken;
 
+    
     do
     {
         newLane = rand() % LANE_COUNT;
         laneTaken = false;
 
+        
         for (int j = 0; j < MAX_OBSTACLES; j++)
         {
             if (j != i && active[j] && enemyLane[j] == newLane)
@@ -166,13 +190,14 @@ void genEnemy(int i)
 
     enemyLane[i] = newLane;
 
-    bool yTooClose;
-    float newY;
+    
+
+    int attempts = 0;
 
     do
     {
         yTooClose = false;
-        newY = -(rand() % 150 + 60);   // spawn above the visible window
+        newY = -(rand() % 800 + 100);   // spawn above the visible window
 
         for (int j = 0; j < MAX_OBSTACLES; j++)
         {
@@ -182,17 +207,24 @@ void genEnemy(int i)
                 break;
             }
         }
-    } while (yTooClose);
+        attempts++;
+    } while (yTooClose && attempts < 100);
 
     enemyY[i] = newY;
     active[i] = true;
+
+    if (fabs(newY - zebraY) < 200.f)
+    {
+        yTooClose = true;
+    }
+
 }
 
 void updateEnemy(int i)
 {
     if (!active[i]) return;
 
-    enemyY[i] += SPEED;
+    enemyY[i] += gameSpeed;
 
     if (enemyY[i] > WINDOW_HEIGHT + CAR_HEIGHT)
         active[i] = false;
@@ -222,8 +254,127 @@ FloatRect enemyBounds(int i)
 }
 
 // =====================
-// AI (ported straight from the console version)
+// ZEBRA CROSSING & TRAFFIC LIGHTS
 // =====================
+
+void updateZebraCrossing()
+{
+    zebraY += gameSpeed;
+
+    if (zebraY > WINDOW_HEIGHT)
+    {
+        zebraY = -(rand() % 3000 + 1500);
+    }
+}
+
+void drawZebraCrossing(RenderWindow& window
+)
+{
+    for (float x = ROAD_LEFT; x < ROAD_RIGHT; x += 25)
+    {
+        RectangleShape stripe(Vector2f(15.f, ZEBRA_HEIGHT));
+
+        stripe.setPosition(x, zebraY);
+
+        stripe.setFillColor(Color::White);
+
+        window.draw(stripe);
+    }
+}
+
+
+enum LightState
+{
+    GREEN,
+    AMBER,
+    RED
+};
+
+Clock zebraClock;
+
+bool zebraWaiting = false;
+bool zebraCrossed = false;
+
+const float ZEBRA_WAIT_TIME = 3.5f; // seconds
+
+LightState trafficLight = GREEN;
+
+void updateTrafficLight()
+{
+    float distanceToCrossing = zebraY - PLAYER_Y;
+
+    if (distanceToCrossing < -500)
+    {
+        trafficLight = GREEN;
+    }
+    else if (distanceToCrossing < -230)
+    {
+        trafficLight = AMBER;
+    }
+    if (distanceToCrossing > -190 && !zebraWaiting && !zebraCrossed)
+    {
+        zebraWaiting = true;
+        zebraClock.restart();
+        trafficLight = RED;
+    }
+    if (zebraWaiting)
+    {
+        if (zebraClock.getElapsedTime().asSeconds() > ZEBRA_WAIT_TIME)
+        {
+            zebraWaiting = false;
+            zebraCrossed = true;
+            trafficLight = GREEN;
+
+        }
+    }
+}
+
+void drawTrafficLight(RenderWindow& window, LightState state)
+{
+    CircleShape light[3];
+    
+    for (int i = 0; i < 3; i++)
+    {
+        light[i].setRadius(20.f);
+    }
+
+    light[0].setPosition(700, 40);
+    light[1].setPosition(700, 80);
+    light[2].setPosition(700, 120);
+
+    switch(state)
+    {
+        case RED:
+            light[0].setFillColor(Color::Red);
+            light[0].setOutlineColor(Color::Black);
+            light[0].setOutlineThickness(2.f);
+            break;
+
+        case AMBER:
+            light[1].setFillColor(Color(255,165,0));
+            light[1].setOutlineColor(Color::Black);
+            light[1].setOutlineThickness(2.f);
+            break;
+
+        case GREEN:
+            light[2].setFillColor(Color::Green);
+            light[2].setOutlineColor(Color::Black);
+            light[2].setOutlineThickness(2.f);
+            break;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        window.draw(light[i]);
+    }
+
+}
+
+// =====================
+// AI DECISION-MAKING
+// =====================
+
+
 bool detectObstacleAhead(Matatu &m)
 {
     for (int i = 0; i < MAX_OBSTACLES; i++)
@@ -240,18 +391,20 @@ bool detectObstacleAhead(Matatu &m)
 
 float laneSafetyScore(int lane)
 {
-    float minDist = 100000.f;
+    float nearestObstacle = 100000.f;
 
     for (int i = 0; i < MAX_OBSTACLES; i++)
     {
         if (active[i] && enemyLane[i] == lane)
         {
-            float dist = enemyY[i];
-            if (dist < minDist)
-                minDist = dist;
+            float dist = PLAYER_Y - enemyY[i];
+
+            if (dist > 0 && dist < nearestObstacle)
+                nearestObstacle = dist;
         }
     }
-    return minDist;
+
+    return nearestObstacle;
 }
 
 bool checkLaneAvailability(const string &direction, Matatu &m)
@@ -280,6 +433,11 @@ bool checkLaneAvailability(const string &direction, Matatu &m)
 
 string autoDecision(Matatu &m)
 {
+    if (trafficLight == RED)
+    {
+        return "BRAKE";
+    }
+
     bool obstacleAhead = detectObstacleAhead(m);
     bool leftFree  = checkLaneAvailability("left", m);
     bool rightFree = checkLaneAvailability("right", m);
@@ -291,7 +449,13 @@ string autoDecision(Matatu &m)
     {
         float leftScore  = laneSafetyScore(m.getLane() - 1);
         float rightScore = laneSafetyScore(m.getLane() + 1);
-        return (leftScore > rightScore) ? "LEFT" : "RIGHT";
+        
+        if (leftScore == rightScore)
+        {
+            return (rand() % 2 == 0) ? "LEFT" : "RIGHT";
+        }
+
+return (leftScore > rightScore) ? "LEFT" : "RIGHT";
     }
 
     if (leftFree)  return "LEFT";
@@ -321,7 +485,11 @@ bool checkCollision(Matatu &m)
 void resetGame(Matatu &m, Texture &playerTexture)
 {
     for (int i = 0; i < MAX_OBSTACLES; i++)
+    {
         active[i] = false;
+        enemyY[i] = 0;
+        enemyLane[i] = 0;
+    }
 
     m = Matatu();   // re-run the constructor to reset lane/position
 
@@ -331,23 +499,90 @@ void resetGame(Matatu &m, Texture &playerTexture)
 }
 
 // =====================
+// TEXT SETTINGS
+// =====================
+
+Text GameOverText(Font &font)
+{
+    Text text;
+    text.setFont(font);
+    text.setString ("\t\t\t\t\t GAME OVER\nPRESS R TO RESTART OR ESC TO EXIT");
+    text.setCharacterSize(35);
+    text.setFillColor(Color::White);
+    text.setPosition(WINDOW_WIDTH / 2.f -320 , WINDOW_HEIGHT / 2.f - 50.f);
+
+    return text;
+}
+
+Text StartText(Font &font)
+{
+    Text text;
+    text.setFont(font);
+    text.setString(
+        "\t------------------------------\n"
+        "\t| Self Driving Matatu |\n"
+        "\t------------------------------\n"
+        "Press SPACE to Start Game\n"
+        "Press 1. For instructions"
+            );
+
+    text.setCharacterSize(35);
+    text.setPosition(WINDOW_WIDTH / 2 - 200, WINDOW_HEIGHT / 2 - 140);
+
+    return text;
+}
+
+Text instructionsText(Font &font)
+{
+    Text text;
+    text.setFont(font);
+    text.setString(
+        "Instructions:\n"
+        "1. Avoid obstacles by changing lanes.\n"
+        "2. Press A or Left Arrow to move left.\n"
+        "3. Press D or Right Arrow to move right.\n"
+        "4. Press W or Up Arrow to increase speed.\n"
+        "5. Press S or Down Arrow to decrease speed.\n"
+        "6. Press P to turn the AI control on/off.\n"
+        "7. Press R to restart the game.\n"
+        "8. Press ESC to exit the game.\n"
+        "Press ESC to return to the main menu."
+
+    );
+
+    text.setCharacterSize(25);
+    text.setFillColor(Color::White);
+    text.setPosition(WINDOW_WIDTH / 2 - 300, WINDOW_HEIGHT / 2 - 150);
+
+    return text;
+}
+
+// =====================
 // ROAD DRAWING
 // =====================
-void drawRoad(RenderWindow &window)
+void drawRoad(RenderWindow &window, float roadOffset)
 {
     RectangleShape roadBg(Vector2f(ROAD_RIGHT - ROAD_LEFT, WINDOW_HEIGHT));
     roadBg.setPosition(ROAD_LEFT, 0);
     roadBg.setFillColor(Color(40, 40, 40));
     window.draw(roadBg);
 
-    for (int lane = 0; lane <= LANE_COUNT; lane++)
+    for (int lane = 1; lane < LANE_COUNT; lane++)
+{
+    float x = ROAD_LEFT + lane * LANE_WIDTH;
+
+    float dashHeight = 30.f;
+    float gapHeight  = 20.f;
+
+    for (float y = roadOffset; y < WINDOW_HEIGHT; y += dashHeight + gapHeight)
     {
-        float x = ROAD_LEFT + lane * LANE_WIDTH;
-        RectangleShape line(Vector2f(3.f, WINDOW_HEIGHT));
-        line.setPosition(x, 0);
-        line.setFillColor(Color::White);
-        window.draw(line);
+        RectangleShape dash(Vector2f(4.f, dashHeight));
+        dash.setPosition(x, y);
+        dash.setFillColor(Color::White);
+
+        window.draw(dash);
     }
+}
 }
 
 // =====================
@@ -357,8 +592,9 @@ int main()
 {
     srand((unsigned int)time(0));
 
-    RenderWindow window(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Matatu Dodge - SFML");
+    RenderWindow window(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Self Driving Matatu");
     window.setFramerateLimit(60);
+      // default full speed
 
     Matatu matatu;
 
@@ -368,11 +604,22 @@ int main()
     // If either file fails to load, the game falls back to plain rectangles
     // automatically, so it will still run without the images.
     Texture playerTexture;
-    Texture enemyTexture;
+    Texture enemyTexture[3];
 
     bool playerTexOk = playerTexture.loadFromFile("matatu.png");
-    bool enemyTexOk  = enemyTexture.loadFromFile("obstacle.png");
+    bool enemyTexOk =
+        enemyTexture[0].loadFromFile("obstacle.png") &&
+        enemyTexture[1].loadFromFile("obstacle1.png") &&
+        enemyTexture[2].loadFromFile("obstacle2.png");
+
     bool paused = false;
+    bool gameStarted = false;
+    float roadOffset = 0.f;
+    bool nightMode = false;
+    bool showInstructions = false;
+    Clock modeClock;
+    Clock changeLaneClock;
+
 
 
     initEnemyShapes(enemyTexture);
@@ -385,19 +632,6 @@ int main()
     // or change this path to point at one on your system.
     Font font;
     bool hasFont = font.loadFromFile("arial.ttf");
-
-    Text gameOverText;
-    if (hasFont)
-    {
-        gameOverText.setFont(font);
-        gameOverText.setString("GAME OVER\nPRESS R TO RESTART OR ESC TO EXIT");
-        gameOverText.setCharacterSize(36);
-        gameOverText.setFillColor(Color::White);
-        FloatRect tb = gameOverText.getLocalBounds();
-        gameOverText.setOrigin(tb.width / 2.f, tb.height / 2.f);
-        gameOverText.setPosition(WINDOW_WIDTH / 2.f, WINDOW_HEIGHT / 2.f);
-    }
-
     bool gameOver = false;
     bool aiEnabled = true;   // starts in AI mode; player can press P to toggle to manual
 
@@ -415,22 +649,42 @@ int main()
             {
                 if (event.key.code == Keyboard::Escape)
                 {
-                    if (gameOver == true)
+                    if (showInstructions)
+                    {
+                        showInstructions = false;
+                    }
+                    else if (gameOver == true)
                         window.close();     // ESC on the game-over screen exits
                     else
                         gameOver = true;    // ESC mid-game ends the round early
                 }
-
-                if (event.key.code == Keyboard::Space && !gameOver)
+                if (event.key.code == Keyboard::Space)
                 {
-                    paused = !paused;   // toggle pause ✅
+                    if (!gameStarted && !showInstructions)
+                    {                         
+                        gameStarted = true;   // start game ✅
+                    }
+                    else if (!gameOver)
+                    {
+                        paused = !paused;     // pause after game starts ✅
+                    }
                 }
-
+                if (event.key.code == Keyboard::Num1)
+                {
+                    showInstructions = true;
+                }
                 if (event.key.code == Keyboard::R)
                 {
                     resetGame(matatu, playerTexture);
+                    for (int i = 0; i < MAX_OBSTACLES; i++)
+                    active[i] = false;
+                    
                     gameOver = false;
+                    paused = false;
+                    gameStarted = false;   // ✅ important
+                    gameSpeed = 5.f;            // reset speed to default
                 }
+
 
                 if (event.key.code == Keyboard::P)
                 {
@@ -439,61 +693,188 @@ int main()
 
                 if (!gameOver && !aiEnabled)
                 {
-                    if (event.key.code == Keyboard::A)
+                    if (event.key.code == Keyboard::A || event.key.code == Keyboard::Left)
                         matatu.changeLane("left");
-                    if (event.key.code == Keyboard::D)
+                    if (event.key.code == Keyboard::D || event.key.code == Keyboard::Right)
                         matatu.changeLane("right");
+                    if (event.key.code == Keyboard::W || event.key.code == Keyboard::Up)
+                    {
+                        gameSpeed += SPEED_STEP;
+                        if (gameSpeed > MAX_SPEED)
+                        gameSpeed = MAX_SPEED;
+                    }
+                    
+                    if (event.key.code == Keyboard::S || event.key.code == Keyboard::Down)
+                    {
+                        gameSpeed -= SPEED_STEP;
+                        if (gameSpeed < MIN_SPEED)
+                        gameSpeed = MIN_SPEED;
+                    }
+
                 }
             }
         }
 
         // ---- UPDATE ----
-        if (!gameOver && !paused)
+        if (gameStarted && !gameOver && !paused)
         {
-            if (!active[0])
-                genEnemy(0);
 
-            if (!active[1] && enemyY[0] > 100.f)
-                genEnemy(1);
-
-            if (!active[2] && enemyY[1] > 100.f)
-                genEnemy(2);
-
+            for (int i = 0; i < MAX_OBSTACLES; i++)
+            {
+                if (!active[i])
+                {
+                    genEnemy(i);
+                }
+            }
+            
             if (aiEnabled)
             {
                 string decision = autoDecision(matatu);
-                if (decision == "LEFT")  matatu.changeLane("left");
-                if (decision == "RIGHT") matatu.changeLane("right");
+
+                if (changeLaneClock.getElapsedTime().asMilliseconds() > 500)  // .5 seconds cooldown between lane changes
+                {
+                    if (decision == "LEFT") {
+                        matatu.changeLane("left");
+                        changeLaneClock.restart();
+                        }
+                    else if (decision == "RIGHT") {
+                        matatu.changeLane("right");
+                        changeLaneClock.restart();
+                    }
+                    else if (decision == "BRAKE") {
+                        braking = true;
+                    }
+                }
+            }
+            // Update traffic light first
+            updateTrafficLight();
+                
+            // Determine movement speed
+            float targetSpeed = 1.0f;
+            braking = false;
+
+            if (aiEnabled)
+            {
+                if (trafficLight == AMBER)
+                {
+                    targetSpeed = 0.5f;    // slow down
+                }
+                else if (trafficLight == RED)
+                {
+                    targetSpeed = 0.0f;    // complete stop
+                }
+                if (movementFactor < targetSpeed)
+                {
+                    movementFactor += 0.01f;
+                    if (movementFactor > targetSpeed)
+                    {
+                        movementFactor = targetSpeed;
+                    }
+                }
+                if (movementFactor > targetSpeed)
+                {
+                    movementFactor -= 0.01f;
+                    if (movementFactor < targetSpeed)
+                    {
+                        movementFactor = targetSpeed;
+                    }
+                }
             }
 
+            
+            // Move road
+            
+            roadOffset += gameSpeed * movementFactor;
+
+            if (roadOffset > 50.f)
+            {
+                roadOffset = 0.f;
+            }
+            
+            // Move zebra crossing
+            zebraY += gameSpeed * movementFactor;
+            if (zebraY > WINDOW_HEIGHT)
+            {
+                zebraY = -(rand() % 3000 + 1500);
+                zebraCrossed = false;
+            }
+                
+            // Move enemies
             for (int i = 0; i < MAX_OBSTACLES; i++)
-                updateEnemy(i);
-
-            if (checkCollision(matatu))
-                gameOver = true;
+            {
+                if (active[i])
+                {
+                    enemyY[i] += gameSpeed * movementFactor;
+                    if (enemyY[i] > WINDOW_HEIGHT + CAR_HEIGHT)
+                    {
+                        active[i] = false;
+                    }
+                }
+            }
         }
-
-        // ---- DRAW ----
-        window.clear(Color::Black);
-
-        if (gameOver)
+            
+        
+        if (checkCollision(matatu))
         {
-            // game-over screen: nothing else is drawn, only the message
-            if (hasFont)
-                window.draw(gameOverText);
+            gameOver = true;
+        }
+      
+    // ---- DRAW ----
+
+    window.clear(Color::Black);
+    
+    
+    if (showInstructions)
+    {
+        if (hasFont)
+        {
+            Text instrText = instructionsText(font);
+            window.draw(instrText);
+        }
+    }
+    else if (!gameStarted)
+    {
+        if (hasFont)
+        {
+            Text startText = StartText(font);
+            window.draw(startText);
+        }
+    }
+    else if (gameOver)
+    {
+        if (hasFont)
+        {
+             Text gameOverText = GameOverText(font);
+            window.draw(gameOverText);
+        }
+    }
+    else
+    {
+        if (modeClock.getElapsedTime().asSeconds() > 30)
+        {
+            nightMode = !nightMode;
+            modeClock.restart();
+        }
+        if (nightMode)
+        {
+            window.clear(Color(1,50,32));
         }
         else
         {
-            drawRoad(window);
-
-            for (int i = 0; i < MAX_OBSTACLES; i++)
-                drawEnemy(i, window);
-
-            matatu.draw(window);
+            window.clear(Color(76, 115, 57));
         }
 
-        window.display();
-    }
+        drawRoad(window, roadOffset);
+        drawZebraCrossing(window);
+        drawTrafficLight(window, trafficLight);
 
+        for (int i = 0; i < MAX_OBSTACLES; i++)
+        {
+            drawEnemy(i, window);
+        }   
+        matatu.draw(window);
+    }
+    window.display();
+    }
     return 0;
 }
