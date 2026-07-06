@@ -35,7 +35,6 @@ bool zebraActive = true;
 
 bool braking = false;
 float gameSpeed = (7.5f);
-float movementFactor = 1.0f; 
 const float FULL_GAME_DURATION = 600.0f;
 bool timeOver = false;
 
@@ -477,7 +476,7 @@ void resetGame(Matatu &m, Texture &playerTexture)
     for (int i = 0; i < MAX_OBSTACLES; i++)
     {
         active[i] = false;
-        enemyY[i] = 0;
+        enemyY[i] = -1000;
         enemyLane[i] = 0;
     }
     m = Matatu();
@@ -490,7 +489,7 @@ void resetGame(Matatu &m, Texture &playerTexture)
     zebraWaiting = false;
     zebraCrossed = false;
     LightState trafficLight = GREEN;
-    movementFactor = 1.0f;
+    gameSpeed = 7.5f;
 }
 
 // =====================
@@ -572,16 +571,20 @@ Text instructionsText(Font &font)
 
     return text;
 }
-Text MonitorText(Font& font, bool aiEnabled, int speed, int lane, LightState light, float movementFactor, float timeRemaining)
+Text MonitorText(Font& font, bool aiEnabled, float speed, int lane, LightState light, float gameSpeed, float timeRemaining)
 {
     Text text; 
     text.setFont(font);
     string mode = aiEnabled ? "AI" : "MANUAL";
     string lightText;
     string timeText;
+    string currspeed;
     stringstream ss;
+    stringstream SS;
     ss << fixed << setprecision(1) << timeRemaining;
     timeText = ss.str() + " min";
+    SS << fixed << setprecision(1) << speed;
+    currspeed = SS.str();
     
 
     if (light == GREEN) 
@@ -599,14 +602,14 @@ Text MonitorText(Font& font, bool aiEnabled, int speed, int lane, LightState lig
 
     string status;
 
-    if (movementFactor > 0.0f)
+    if (gameSpeed > 0.0f)
         status = "MOVING";
     else
         status = "STOPPED";
 
     text.setString(
         "MODE: " + mode +
-        "\nSPEED: " + to_string((int)speed) +
+        "\nSPEED: " + currspeed +
         "\nLANE: " + to_string(lane + 1) +
         "\nLIGHT: " + lightText +
         "\nSTATUS: " + status +
@@ -743,6 +746,7 @@ int main()
                     paused = false;
                     gameStarted = false;  
                     gameSpeed = (7.5f);
+                    crashed = false;
                 }
                 if (event.key.code == Keyboard::P)
                 {
@@ -820,45 +824,49 @@ int main()
             
             updateTrafficLight();
             
-            float targetSpeed = 1.0f;
+            float targetSpeed;
             braking = false;
 
             if (aiEnabled)
-            {
+            {   
                 if (trafficLight == AMBER)
                 {
-                    targetSpeed = 0.5f;    
+                    targetSpeed = 3.5f;
                 }
-                else if (trafficLight == RED)
+                if (trafficLight == RED)
                 {
-                    targetSpeed = 0.0f;    
+                    targetSpeed = 0.f;                    
                 }
-                if (movementFactor < targetSpeed)
+                if (trafficLight == GREEN)
                 {
-                    movementFactor += 0.015f;
-                    if (movementFactor > targetSpeed)
+                    targetSpeed = 7.5f;
+                }
+                if (gameSpeed < targetSpeed)
+                {
+                    gameSpeed += 0.1f;
+                    if (gameSpeed > targetSpeed)
                     {
-                        movementFactor = targetSpeed;
+                        gameSpeed = targetSpeed;
                     }
                 }
-                if (movementFactor > targetSpeed)
+                if (gameSpeed > targetSpeed)
                 {
-                    movementFactor -= 0.015f;
-                    if (movementFactor < targetSpeed)
+                    gameSpeed -= 0.1f;
+                    if (gameSpeed < targetSpeed)
                     {
-                        movementFactor = targetSpeed;
+                        gameSpeed = targetSpeed;
                     }
                 }
             }
             
-            roadOffset += gameSpeed * movementFactor;
+            roadOffset += gameSpeed;
 
             if (roadOffset > 50.f)
             {
                 roadOffset = 0.f;
             }
             
-            zebraY += gameSpeed * movementFactor;
+            zebraY += gameSpeed;
             if (zebraY > WINDOW_HEIGHT)
             {
                 zebraY = -(rand() % 3000 + 1500);
@@ -869,7 +877,7 @@ int main()
             {
                 if (active[i])
                 {
-                    enemyY[i] += gameSpeed * movementFactor;
+                    enemyY[i] += gameSpeed;
                     if (enemyY[i] > WINDOW_HEIGHT + CAR_HEIGHT)
                     {
                         active[i] = false;
@@ -942,7 +950,7 @@ int main()
                 window.clear(Color(76, 115, 57));
             }
 
-            Text monitorText = MonitorText(font, aiEnabled, gameSpeed, matatu.getLane(), trafficLight, movementFactor, timeRemaining);
+            Text monitorText = MonitorText(font, aiEnabled, gameSpeed, matatu.getLane(), trafficLight, gameSpeed, timeRemaining);
             window.draw(monitorText);
             drawRoad(window, roadOffset);
             drawZebraCrossing(window);
