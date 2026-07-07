@@ -674,14 +674,13 @@ int main()
 
     Clock modeClock;
     Clock changeLaneClock;
-    Clock gameTimer;
+    Clock gameClock;
 
     bool paused = false;
     bool gameStarted = false;
     float roadOffset = 0.f;
     bool nightMode = false;
     bool showInstructions = false;
-    float timeRemaining = ((FULL_GAME_DURATION - gameTimer.getElapsedTime().asSeconds()) / 60.f);
 
     initEnemyShapes(enemyTexture);
 
@@ -696,6 +695,8 @@ int main()
 
     while (window.isOpen())
     {
+      gameClock.getElapsedTime().asSeconds();
+      float currtime = gameClock.getElapsedTime().asSeconds();
         // =====================
         // USER INPUT
         // =====================
@@ -728,7 +729,7 @@ int main()
                     if (!gameStarted && !showInstructions)
                     {                         
                         gameStarted = true;
-                        gameTimer.restart();
+                        gameClock.restart();
                     }
                     else if (!gameOver && !crashed)
                     {
@@ -785,7 +786,8 @@ int main()
         // =====================
         // UPDATE
         // =====================
-        if (gameTimer.getElapsedTime().asSeconds() >= FULL_GAME_DURATION)
+       float timeRemaining = ((FULL_GAME_DURATION - currtime)/ 60.f);
+        if (gameClock.getElapsedTime().asSeconds() >= FULL_GAME_DURATION)
                 {
                     timeOver = true;
                     gameOver = true;
